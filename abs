@@ -1,0 +1,13 @@
+using System;
+public abstract class Vehicle{
+public abstract string StartEngine();
+}
+public class Car : Vehicle {
+public override string StartEngine(){
+return "Car Engine started";
+}
+}
+public class Bicycle : Vehicle {
+public override string StartEngine(){
+return "Pedaling the bicycle";
+}
