@@ -1,0 +1,324 @@
+Step 1: Create the Solution and Projects
+  1. Create a new .NET solution named "WebApiSolution."
+            Open your terminal and navigate to the directory where you want to create the solution. Run the following command:
+            dotnet new sln -n WebApiSolution
+  
+  2.Class Libraries:
+  Create the following class libraries within the solution:
+  Domain: Define two model classes (Product and Category).
+  Data: Implement a DbContext class (AppDbContext) and manage database migrations.
+  Services: Create a service class (ProductService) responsible for business logic related to products.
+          Inside the solution directory, create the Domain, Data, and Services class libraries:
+          dotnet new classlib -n Domain
+          dotnet new classlib -n Data
+          dotnet new classlib -n Services
+  3.Web API Project:
+  Create a Web API project named "WebApiApp."
+  Set up appsettings.json with a connection string for the database.
+         a. Still inside the solution directory, create the Web API project:
+            dotnet new webapi -n WebApiApp
+         b. Add all the projects to the solution:
+            dotnet sln add Domain/Domain.csproj
+            dotnet sln add Data/Data.csproj
+            dotnet sln add Services/Services.csproj
+            dotnet sln add WebApiApp/WebApiApp.csproj
+
+
+Step 2: Implement the Domain Models
+
+  1.Product Model:
+    In the Domain project, create a Product.cs file:
+                 namespace Domain
+                  {
+                      public class Product
+                      {
+                          public int Id { get; set; }
+                          public string Name { get; set; }
+                          public decimal Price { get; set; }
+                          public int CategoryId { get; set; }
+                          public Category Category { get; set; }
+                      }
+                  }
+
+
+  2.Category Model:
+    In the Domain project, create a Category.cs file:
+         namespace Domain
+            {
+                public class Category
+                {
+                    public int Id { get; set; }
+                    public string Name { get; set; }
+                    public ICollection<Product> Products { get; set; } = new List<Product>();
+                }
+            }
+
+
+
+
+Step 3: Implement the DbContext
+
+    1.AppDbContext:
+      In the Data project, create an AppDbContext.cs file:
+          using Domain; 
+          using Microsoft.EntityFrameworkCore;
+          
+          namespace Data
+          {
+              public class AppDbContext : DbContext
+              {
+                  public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+          
+                  public DbSet<Product> Products { get; set; }
+                  public DbSet<Category> Categories { get; set; }
+              }
+          }
+
+
+
+      2.Add Entity Framework Core:
+        Add the necessary EF Core packages to the Data project:
+                    dotnet add Data/Data.csproj package Microsoft.EntityFrameworkCore
+                    dotnet add Data/Data.csproj package Microsoft.EntityFrameworkCore.SqlServer
+                    dotnet add Data/Data.csproj package Microsoft.EntityFrameworkCore.Design
+
+
+Step 4: Implement the ProductService
+
+1. ProductService:
+    In the Services project, create a ProductService.cs file:
+                using Data;
+                using Domain;
+                using Microsoft.EntityFrameworkCore;
+                using System;
+                
+                namespace Services
+                {
+                    public class ProductService
+                    {
+                        private readonly AppDbContext _context;
+                
+                        public ProductService(AppDbContext context)
+                        {
+                            _context = context;
+                        }
+                
+                        public async Task<List<Product>> GetAllProductsAsync()
+                        {
+                            return await _context.Products.Include(p => p.Category).ToListAsync();
+                        }
+                
+                        public async Task<Product> GetProductByIdAsync(int id)
+                        {
+                            return await _context.Products.Include(p => p.Category).FirstOrDefaultAsync(p => p.Id == id);
+                        }
+                
+                        public async Task AddProductAsync(Product product)
+                        {
+                            _context.Products.Add(product);
+                            await _context.SaveChangesAsync();
+                        }
+                
+                        public async Task UpdateProductAsync(Product product)
+                        {
+                            _context.Products.Update(product);
+                            await _context.SaveChangesAsync();
+                        }
+                
+                        public async Task DeleteProductAsync(int id)
+                        {
+                            var product = await _context.Products.FindAsync(id);
+                            if (product != null)
+                            {
+                                _context.Products.Remove(product);
+                                await _context.SaveChangesAsync();
+                            }
+                        }
+                
+                        public async Task<List<Product>> GetProductsByCategoryAsync(int categoryId)
+                        {
+                            return await _context.Products.Include(p => p.Category).Where(p => p.CategoryId == categoryId).ToListAsync();
+                        }
+                
+                        public async Task<decimal> GetTotalPriceByCategoryAsync(int categoryId)
+                        {
+                            return await _context.Products.Where(p => p.CategoryId == categoryId).SumAsync(p => p.Price);
+                        }
+                
+                        public async Task<Dictionary<string, decimal>> GetTotalPricePerCategoryAsync()
+                        {
+                            return await _context.Products
+                                .Include(p => p.Category)
+                                .GroupBy(p => p.Category.Name)
+                                .Select(g => new { Category = g.Key, TotalPrice = g.Sum(p => p.Price) })
+                                .ToDictionaryAsync(g => g.Category, g => g.TotalPrice);
+                        }
+                    }
+                }
+
+
+
+
+
+Step 5: Implement the Web API
+   1.Configure appsettings.json:
+      In the WebApiApp project, set up the connection string in appsettings.json:
+                  {
+                    "ConnectionStrings": {
+                        "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=WebApiDb;Trusted_Connection=True;MultipleActiveResultSets=true"
+                    },
+                    "Logging": {
+                        "LogLevel": {
+                            "Default": "Information",
+                            "Microsoft.AspNetCore": "Warning"
+                        }
+                    },
+                    "AllowedHosts": "*"
+                }
+
+    2.Configure Startup:
+      Configure the services in Program.cs:
+                  using Data;
+                  using Microsoft.EntityFrameworkCore;
+                  using Services;
+                  
+                  var builder = WebApplication.CreateBuilder(args);
+                  
+                  // Add services to the container.
+                  builder.Services.AddControllers();
+                  builder.Services.AddEndpointsApiExplorer();
+                  builder.Services.AddSwaggerGen();
+                  
+                  // Add DbContext
+                  builder.Services.AddDbContext<AppDbContext>(options =>
+                      options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+                  
+                  // Add ProductService
+                  builder.Services.AddScoped<ProductService>();
+                  
+                  var app = builder.Build();
+                  
+                  // Configure the HTTP request pipeline.
+                  if (app.Environment.IsDevelopment())
+                  {
+                      app.UseSwagger();
+                      app.UseSwaggerUI();
+                  }
+                  
+                  app.UseHttpsRedirection();
+                  
+                  app.UseAuthorization();
+                  
+                  app.MapControllers();
+                  
+                  app.Run();
+
+      
+      3.Create ProductsController:
+      In the WebApiApp project, create a ProductsController.cs file:
+using Domain;
+using Microsoft.AspNetCore.Mvc;
+using Services;
+
+namespace WebApiApp.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    public class ProductsController : ControllerBase
+    {
+        private readonly ProductService _productService;
+
+        public ProductsController(ProductService productService)
+        {
+            _productService = productService;
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Product>>> GetAllProducts()
+        {
+            var products = await _productService.GetAllProductsAsync();
+            return Ok(products);
+        }
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Product>> GetProductById(int id)
+        {
+            var product = await _productService.GetProductByIdAsync(id);
+            if (product == null)
+            {
+                return NotFound();
+            }
+            return Ok(product);
+        }
+
+        [HttpPost]
+        public async Task<ActionResult> AddProduct(Product product)
+        {
+            await _productService.AddProductAsync(product);
+            return CreatedAtAction(nameof(GetProductById), new { id = product.Id }, product);
+        }
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateProduct(int id, Product product)
+        {
+            if (id != product.Id)
+            {
+                return BadRequest();
+            }
+
+            await _productService.UpdateProductAsync(product);
+            return NoContent();
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteProduct(int id)
+        {
+            await _productService.DeleteProductAsync(id);
+            return NoContent();
+        }
+
+        [HttpGet("category/{categoryId}")]
+        public async Task<ActionResult<IEnumerable<Product>>> GetProductsByCategory(int categoryId)
+        {
+            var products = await _productService.GetProductsByCategoryAsync(categoryId);
+            return Ok(products);
+        }
+
+        [HttpGet("category/{categoryId}/totalprice")]
+        public async Task<ActionResult<decimal>> GetTotalPriceByCategory(int categoryId)
+        {
+            var totalPrice = await _productService.GetTotalPriceByCategoryAsync(categoryId);
+            return Ok(totalPrice);
+        }
+
+        [HttpGet("totalpricepercategory")]
+        public async Task<ActionResult<Dictionary<string, decimal>>> GetTotalPricePerCategory()
+        {
+            var totalPricePerCategory = await _productService.GetTotalPricePerCategoryAsync();
+            return Ok(totalPricePerCategory);
+        }
+    }
+}
+
+
+Step 6: Apply Migrations and Update Database
+     1.Create Initial Migration:
+        Run the following commands to create the initial migration and update the database:
+                  dotnet ef migrations add InitialCreate -p Data -s WebApiApp
+                  dotnet ef database update -p Data -s WebApiApp
+
+
+
+
+Step 7: Test the API
+1.Run the Web API:
+Start the Web API project:
+          dotnet run --project WebApiApp
+
+
+
+
+
+
+
+
